@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <title>ANIMEOTAKU</title>
+    <script type="text/javascript" src="./d3.js"></script>
+    <script type="text/javascript" src="./graph.js"></script>
+    <script type="text/javascript" src="./node_tag.js"></script>
+    <link type="text/css" href="jquery-ui.css" rel="stylesheet" />
+    <script type="text/javascript" src="./jquery-ui/external/jquery/jquery.js"></script>
+    <script type='text/javascript' src='./jquery-ui/jquery-ui.js'></script>
+    <script type='text/javascript' src='./jquery-ui/jquery-ui.min.js'></script>
+
+<!-- 変更されないスタイルシートはここに書く -->
+    <style type="text/css">
+      div#graph-wrapper{
+        overflow: hidden;
+        padding: 5px;
+      }
+      text#graphtitle{
+        font-size: 30px;
+      }
+
+      input[type=range]{
+        -webkit-appearance:none;
+        background: #dddd33;
+        border-radius: 20px;
+      }
+    </style>
+</head>
+<body>
+<div id="wrapper" style="width:100%; height:100%; text-align: center">
+
+  <div id="maindiv">
+    <svg id="mainsvg"></svg>
+    <input id='slider' type="range" style="width:70%; height:26px; position: absolute; top:865px; left: 5%" value=145 min=0 max=145 step=1></input>
+    <p id="past" style="position: absolute; top:875px; left:5%">past</p>
+    <p id="present" style="position: absolute; top:875px; left:73%">present</p>
+    <p id="caption" style="position: absolute; top:875px; left:37.5%; margin-left: -100px">MONTHLY TOP 30 ANIMATIONS on Pixiv</p>
+  </div>
+
+  <!-- グラフ描画用のキャンバス -->
+  <div id="graph-wrapper" style="width: 0px; height:0px;">
+
+    <div id="graphdiv">
+      <svg id="graph" width="100%" height="100%" opacity="0">
+      <text id="graphtitle" x="15" y="30" stroke="#0000ff" fill="#6060ff" text-decoration="underline"></text>
+      </svg>
+    </div>
+    <div id="nodediv">
+      <svg id="node" width="100%" height="100%" opacity="0">
+      </svg>
+    </div>
+
+
+  </div>
+
+</div>
+
+
+<script type="text/javascript">
+var width = 1000;
+var height = 800;
+var offset = 40;
+var range = 70;
+var current_year = 2019;
+var current_month = 10;
+var current = current_year + "-" + ('00'+current_month).slice(-2);
+var limit_number = 30;
+
+var colorArray = ["#000000","#FB7D79","#F7D76B","#F7D76B","#8CD790","#8CD790","#8CD790","#8CD790","#8CD790","#AAD6EC","#AAD6EC","#AAD6EC","#AAD6EC","#AAA5D1"];
+
+var xHash={};
+var yHash={};
+var get_idx={};
+
+var topdata = {};
+
+var hitScale = d3.scaleSqrt().domain([0,3000]).range([10,range]);
+      $(function() {
+            $("#slider").slider();
+          });
+var svg = d3.select("svg#mainsvg")
+            .attr("width", width + 2*offset)
+            .attr("height", height + 2*offset);
+
+svg.append("text")
+  .attr("class", "legendtitle")
+  .attr("fill", "#404040")
+  .attr("x", 0)
+  .attr("y", 215)
+  .text("streak");
+for(var i=1; i<=13; i++){
+  svg.append("rect")
+    .attr("class", "legend")
+    .attr("x", 30)
+    .attr("y", 200+30*(14-i))
+    .attr("width", 35)
+    .attr("height", 30)
+    .attr("stroke","#FFFFFF")
+    .attr("stroke-width", 2)
+    .attr("fill", colorArray[i]);
+  svg.append("text")
+    .attr("class", "legend")
+    .attr("x",35)
+    .attr("y", 217+30*(14-i))
+    .attr("fill", "#404040")
+    .attr("stroke","none")
+    .text(function(){
+      if(i==13){
+        return "13+"
+      }else{
+        return i;
+      }
+    });
+}
+
+
+d3.json("./data/data_full.json").then(function(dataset){
+
+  dataset.forEach(function(d,i){
+    xHash[d.title] = width/2;
+    yHash[d.title] = height/2;
+    get_idx[d.title] = i;
+  });
+  // 各月の上位のデータだけ最初に取得しておく
+  for(var y=2007; y<2020; y++){
+    for(var m=1; m<13; m++){
+      topdata[y+"-"+('00'+m).slice(-2)] = incorpolateData(dataset, y+"-"+('00'+m).slice(-2));
+    }
+  }
+
+  
+
+
+  data = topdata[current];
+
+  var yearLabel = svg.append("text")
+                  .attr("class", "yearLabel")
+                  .attr("text-anchor", "end")
+                  .attr("font-size", 50)
+                  .attr("x", width)
+                  .attr("y", height)
+                  .text(current);
+
+  var circle = svg.selectAll("circle")
+                  .data(data)
+                  .enter()
+                  .append("circle")
+                  .attr("class", "circle")
+                  .attr("id", function(d,i){return "circle"+i;})
+                  .attr("fill", function(d){return circle_color(d)})
+                  .attr("stroke", "black")
+                  .attr("r", function(d){return d.r})
+                  .call(d3.drag()
+                  .on("start", dragstarted)
+                  .on("drag", dragged)
+                  .on("end", dragended))
+                  .on("click", circleclicked);
+
+svg.append("circle")
+  .attr("id", "homebutton")
+  .attr("r", 78)
+  .attr("cx", 80)
+  .attr("cy", 80)
+  .attr("fill", "none")
+  .attr("stroke", "#ffff00")
+  .attr("stroke-width", 4);
+svg.append("clipPath")
+    .attr("id", "clip")
+    .append("use")
+    .attr("xlink:href", "#homebutton");
+var homebutton = svg.append("image")
+    .attr("id", "buttonimage")
+    .attr("xlink:href", "./img/button.png")
+    .attr("width", 160)
+    .attr("height", 160)
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("clip-path", "url(#clip)");
+
+  var simulation = d3.forceSimulation()
+                  .force("collide",
+                    d3.forceCollide()
+                    .radius(function(d){return d.r+5})
+                    .strength(1.0)
+                    .iterations(16))
+                  .force("charge", d3.forceManyBody().strength(5))
+                  .force("x", d3.forceX(width/2).strength(0.1))
+                  .force("y", d3.forceY(height/2).strength(0.1));
+
+  var time_slide = d3.select("#slider").on("input", function() {
+                      var currentValue = Number(this.value);
+                      var a = Math.floor((currentValue+8)/12)
+                      var b = currentValue%12
+
+                      var prev_data = topdata[current];
+
+                      current_year = 2007+a
+                      var temp_month = 9+b
+                      if(temp_month>12){
+                        current_month = temp_month%12
+                      }
+                      else{
+                        current_month=temp_month
+                      }
+
+                      current = current_year + "-" + ('00'+current_month).slice(-2);
+                      yearLabel.text(current);
+
+                      var data=topdata[current];
+
+                      for(var i=0; i<limit_number; i++){
+                          data[i].x = width/2;
+                          data[i].y = height/2;
+                        for(var j=0; j<limit_number; j++){
+                          if(data[i].title == prev_data[j].title){
+                            data[i].x = prev_data[j].x;
+                            data[i].y = prev_data[j].y;
+                            break;
+                          }
+                        }
+                      }
+
+                      circle.data(data)
+                        .attr("r", function(d){return d.r;})
+                        .attr("fill", function(d){return circle_color(d)})
+
+                      titlelabel
+                        .data(data)
+                        .text(function(d){
+                          return d.title;
+                        });
+                      hitlabel
+                        .data(data)
+                        .text(function(d){
+                          return d.hit;
+                        });
+
+                      simulation = d3.forceSimulation()
+                                      .force("collide",
+                                        d3.forceCollide()
+                                        .radius(function(d){return d.r+5})
+                                        .strength(1.0)
+                                        .iterations(16))
+                                      .force("charge", d3.forceManyBody().strength(5))
+                                      .force("x", d3.forceX(width/2).strength(0.1))
+                                      .force("y", d3.forceY(height/2).strength(0.1));
+                      
+                      simulation.nodes(data)
+                                .on("tick", ticked);
+                    })
+
+                        
+
+  simulation.nodes(data)
+            .on("tick", ticked);
+
+
+  var titlelabel = svg.selectAll("text.titlelabel")
+                      .data(data)
+                      .enter()
+                      .append("text")
+                      .attr("class","titlelabel")
+                      .attr("x", function(d){
+                        return xHash[d.title];
+                      })
+                      .attr("y", function(d){
+                        return yHash[d.title];
+                      })
+                      .attr("font-size", function(d){
+                        return Math.max(9,d.r/3.5);
+                      })
+                      .attr("text-anchor", "middle")
+                      .text(function(d){
+                        return d.title;
+                      });
+
+  var hitlabel = svg.selectAll("text.hitlabel")
+                  .data(data)
+                  .enter()
+                  .append("text")
+                  .attr("class","hitlabel")
+                  .attr("x", function(d){
+                    return xHash[d.title];
+                  })
+                  .attr("y", function(d){
+                    return yHash[d.title];
+                  })
+                  .attr("font-size", function(d){
+                    return 12;
+                  })
+                  .attr("text-anchor", "middle")
+                  .text(function(d){
+                    return d.hit;
+                  })
+
+  //ここから時系列変更時の処理
+/*
+  svg.call(
+    d3.drag()
+      .on("start",dragstarted_time)
+      .on("drag",dragged_time)
+      .on("end",dragended_time));
+
+  var drag_delta;
+  var drag_threshold = 0.1;
+
+  function dragstarted_time(){
+    drag_delta = 0;
+  }
+  function dragged_time(){
+    drag_delta += d3.event.dx/100;
+    time_delta = Math.floor(drag_delta / drag_threshold);
+
+
+    var prev_data = topdata[current];
+    if(time_delta != 0)
+    {
+      next_month = (current_month + time_delta);
+      next_year = current_year;
+      if(next_month > 12) {
+        next_year += 1;
+        next_month = 1;
+      }
+
+      if(next_month < 1) {
+        next_month = 12;
+        next_year -= 1;
+      }
+
+      if(next_year > 2019  || (next_year==2019 && (next_month == 11 || next_month==12))){
+        next_year = 2019;
+        next_month = 10;
+      }
+
+      if(next_year < 2007 || (next_year==2007&&next_month<9)){
+        next_year = 2007;
+        next_month = 9;
+      }
+
+      current_year = next_year;
+      current_month = next_month;
+      current = current_year + "-" + ('00'+current_month).slice(-2);
+      yearLabel.text(current);
+
+
+      var data=topdata[current];
+      for(var i=0; i<limit_number; i++){
+        data[i].x = prev_data[i].x;
+        data[i].y = prev_data[i].y;
+      }
+      circle.data(data)
+        .attr("r", function(d){return d.r;})
+        .attr("fill", function(d){return circle_color(d)})
+
+      titlelabel
+        .data(data)
+        .text(function(d){
+          return d.title;
+        });
+      hitlabel
+        .data(data)
+        .text(function(d){
+          return d.hit;
+        });
+        
+      simulation = d3.forceSimulation()
+                .force("collide",
+                  d3.forceCollide()
+                  .radius(function(d){return d.r+5})
+                  .strength(1.0)
+                  .iterations(16))
+                .force("charge", d3.forceManyBody().strength(5))
+                .force("x", d3.forceX(width/2).strength(0.1))
+                .force("y", d3.forceY(height/2).strength(0.1));
+      simulation.nodes(data)
+                .on("tick", ticked);
+
+      drag_delta = 0;
+    }
+  }
+  function dragended_time(){
+  }
+  //ここまで時系列変更処理
+  */
+
+  //データの体裁を整える
+  function incorpolateData(dataset, time){
+    var tempdata = dataset.map(
+      function(d) { return {
+          title: d.title,
+          hit: d.hits[time],
+          tag: d.tags[time],
+          x:xHash[d.title],
+          y:yHash[d.title],
+          r:hitScale(d.hits[time])
+      };
+    });
+
+    tempdata.sort(function(a, b) {
+      return (a.hit > b.hit) ? -1 : 1;
+    });
+
+    tempdata = tempdata.slice(0,limit_number);
+
+    return tempdata;
+  }
+
+  //ノードに色をつける処理
+  function circle_color(d){
+    var popularity=1;
+    var temp_popularity=0;
+    
+    temp_month = current_month-1;
+    temp_year = current_year;
+
+
+    temp_time = temp_year + "-" + ('00'+temp_month).slice(-2);
+    
+    for(var i=0; i<12; i++){
+      temp_popularity = popularity
+
+      if(temp_month==0){
+        temp_month=12
+        temp_year--;
+      }
+
+      temp_time = temp_year + "-" + ('00'+temp_month).slice(-2);
+      tempdata = topdata[temp_time];
+
+      tempdata.forEach(function(d_temp){
+        if(d.title == d_temp.title){
+          popularity++;
+        }
+      });
+
+      if(temp_popularity==popularity) {
+        break;
+      }
+      temp_month--;
+      
+    }
+
+      return colorArray[Math.min(popularity,13)];
+  }
+
+
+  function ticked(){
+
+    circle.attr("cx", function(d){return d.x;})
+        .attr("cy", function(d){return d.y;});
+  
+    titlelabel
+      .attr("x", function(d){return d.x;})
+      .attr("y", function(d){return d.y;})
+      .attr("font-size", function(d){
+        return Math.max(9,d.r/3.5);
+      })
+    
+    hitlabel
+      .attr("x", function(d){return d.x;})
+      .attr("y", function(d){return d.y + 20;});
+  }
+
+  //ここからノードを掴んだ時の処理
+  function dragstarted(d) {
+    if(!d3.event.active) simulation.alphaTarget(0.3).restart();
+    d.fx = d.x;
+    d.fy = d.y;
+  }
+ 
+  function dragged(d) {
+    d.fx = d3.event.x;
+    d.fy = d3.event.y;
+  }
+ 
+  function dragended(d) {
+    if(!d3.event.active) simulation.alphaTarget(0);
+    d.fx = null;
+    d.fy = null;
+  }
+  //ここまでノードを掴んだ時の処理
+
+
+  // ノードがクリックされたときのグラフの描画
+  function circleclicked(p){
+    d3.select("div#maindiv")
+      .attr("style","margin-left: -600px");
+    d3.select("div#graph-wrapper")
+      .attr("style",
+          "position: absolute; top:10px; right: 100px; width: 600px; height: 850px;"
+      );
+
+    d3.select("div#graph-wrapper #graph")
+      .attr("style", "position: static; top:10px; right: 00px; width: 600px; height: 450px; border: solid 1px #aa33aa;");
+
+    d3.select("div#graph-wrapper #node")
+      .attr("style", "position: static; right: 0px; top: 450px; width:600px; height:380px; border: solid 1px #aa33aa;");
+    d3.select("svg#graph")
+      .attr("opacity", 0)
+      .transition()
+      .delay(0)
+      .duration(1000)
+      .attr("opacity", 1);
+
+    d3.select("svg#node")
+      .attr("opacity", 0)
+      .transition()
+      .delay(0)
+      .duration(1000)
+      .attr("opacity", 1);
+
+    draw_graph(dataset, p);
+    draw_node(p)
+  }
+
+//ホームボタンがクリックされたらグラフを消す
+homebutton.on("click", function(){
+  d3.select("div#maindiv")
+    .attr("style", "");
+  d3.select("div#graph-wrapper")
+    .attr("style","width: 0px; height: 0px;");
+  d3.select("circle#homebutton")
+    .transition()
+    .delay(0)
+    .duration(200)
+    .attr("cy", 60)
+    .transition()
+    .delay(0)
+    .duration(100)
+    .attr("cy", 80);
+  d3.select("image#buttonimage")
+    .transition()
+    .delay(0)
+    .duration(200)
+    .attr("y", -20)
+    .transition()
+    .delay(0)
+    .duration(100)
+    .attr("y", 0);
+
+})
+
+});
+
+
+</script>
+</body>
+</html>
